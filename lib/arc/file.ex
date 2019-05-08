@@ -1,5 +1,5 @@
 defmodule Arc.File do
-  defstruct [:path, :file_name, :binary, headers: []]
+  defstruct [:path, :file_name, :binary, headers: [], mime_type: nil, extension: nil]
 
   def generate_temporary_path(file \\ nil) do
     extension = Path.extname((file && file.path) || "")
@@ -19,7 +19,9 @@ defmodule Arc.File do
 
     case save_file(uri, filename) do
       {:ok, local_path, headers} ->
-        %Arc.File{path: local_path, file_name: filename, headers: headers}
+        {_, mime_type} = Enum.find(headers, fn {a, b} -> a == "Content-Type" end)
+        [extension | _] = MIME.extensions(mime_type)
+        %Arc.File{path: local_path, file_name: filename, headers: headers, extension: extension, mime_type: mime_type}
 
       :error ->
         {:error, :invalid_file_path}
