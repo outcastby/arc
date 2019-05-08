@@ -1,5 +1,5 @@
 defmodule Arc.File do
-  defstruct [:path, :file_name, :binary]
+  defstruct [:path, :file_name, :binary, headers: []]
 
   def generate_temporary_path(file \\ nil) do
     extension = Path.extname((file && file.path) || "")
@@ -9,7 +9,7 @@ defmodule Arc.File do
       |> Base.encode32()
       |> Kernel.<>(extension)
 
-    Path.join(System.tmp_dir, file_name)
+    Path.join(System.tmp_dir(), file_name)
   end
 
   # Given a remote file
@@ -18,10 +18,13 @@ defmodule Arc.File do
     filename = Path.basename(uri.path)
 
     case save_file(uri, filename) do
-      {:ok, local_path} -> %Arc.File{path: local_path, file_name: filename}
-      :error -> {:error, :invalid_file_path}
+      {:ok, local_path, headers} ->
+        %Arc.File{path: local_path, file_name: filename, headers: headers}
+
+      :error ->
+        {:error, :invalid_file_path}
     end
-end
+  end
 
   # Accepts a path
   def new(path) when is_binary(path) do
@@ -62,7 +65,7 @@ end
       |> Kernel.<>(Path.extname(filename))
 
     case save_temp_file(local_path, uri) do
-      :ok -> {:ok, local_path}
+      {:ok, headers} -> {:ok, local_path, headers}
       _ -> :error
     end
   end
@@ -71,8 +74,12 @@ end
     remote_file = get_remote_path(remote_path)
 
     case remote_file do
-      {:ok, body} -> File.write(local_path, body)
-      {:error, error} -> {:error, error}
+      {:ok, file} ->
+        File.write(local_path, file.body)
+        {:ok, file.headers}
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 
@@ -89,7 +96,7 @@ end
       timeout: Application.get_env(:arc, :timeout, 10_000),
       max_retries: Application.get_env(:arc, :max_retries, 3),
       backoff_factor: Application.get_env(:arc, :backoff_factor, 1000),
-      backoff_max: Application.get_env(:arc, :backoff_max, 30_000),
+      backoff_max: Application.get_env(:arc, :backoff_max, 30_000)
     ]
 
     request(remote_path, options)
@@ -97,14 +104,18 @@ end
 
   defp request(remote_path, options, tries \\ 0) do
     case :hackney.get(URI.to_string(remote_path), [], "", options) do
-      {:ok, 200, _headers, client_ref} -> :hackney.body(client_ref)
+      {:ok, 200, headers, client_ref} ->
+        {:ok, body} = :hackney.body(client_ref)
+        {:ok, %{body: body, headers: headers}}
+
       {:error, %{reason: :timeout}} ->
         case retry(tries, options) do
           {:ok, :retry} -> request(remote_path, options, tries + 1)
           {:error, :out_of_tries} -> {:error, :timeout}
         end
 
-      _ -> {:error, :arc_httpoison_error}
+      _ ->
+        {:error, :arc_httpoison_error}
     end
   end
 
@@ -116,7 +127,8 @@ end
         :timer.sleep(backoff)
         {:ok, :retry}
 
-      true -> {:error, :out_of_tries}
+      true ->
+        {:error, :out_of_tries}
     end
   end
 end
