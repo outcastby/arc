@@ -1,5 +1,5 @@
 defmodule Arc.File do
-  defstruct [:path, :file_name, :binary, headers: [], mime_type: nil, extension: nil]
+  defstruct [:path, :file_name, :binary, headers: [], mime_type: nil, ext: nil]
 
   def generate_temporary_path(file \\ nil) do
     extension = Path.extname((file && file.path) || "")
@@ -13,35 +13,61 @@ defmodule Arc.File do
   end
 
   # Given a remote file
-  def new(remote_path = "http" <> _) do
+  def new(remote_path = "http" <> _, scope) do
     uri = URI.parse(remote_path)
-    filename = Path.basename(uri.path)
+    filename = (scope[:file_name] || Path.basename(uri.path)) |> String.downcase()
 
     case save_file(uri, filename) do
       {:ok, local_path, headers} ->
         {_, mime_type} = Enum.find(headers, fn {a, b} -> a == "Content-Type" end)
-        [extension | _] = MIME.extensions(mime_type)
-        %Arc.File{path: local_path, file_name: filename, headers: headers, extension: extension, mime_type: mime_type}
+        {file_name, ext} = get_file_name_and_ext(filename, mime_type)
+
+        %Arc.File{
+          path: local_path,
+          file_name: file_name,
+          headers: headers,
+          ext: ext,
+          mime_type: mime_type
+        }
 
       :error ->
         {:error, :invalid_file_path}
     end
   end
 
+  def valid_ext_from_filename?(filename) do
+    case Path.extname(filename) do
+      "." <> ext -> MIME.has_type?(ext)
+      _ -> false
+    end
+  end
+
+  def get_file_name_and_ext(filename, mime_type) do
+    case valid_ext_from_filename?(filename) do
+      true ->
+        "." <> ext = Path.extname(filename)
+        {filename, ext}
+
+      false ->
+        [ext | _] = MIME.extensions(mime_type)
+        {filename <> "." <> ext, ext}
+    end
+  end
+
   # Accepts a path
-  def new(path) when is_binary(path) do
+  def new(path, _scope) when is_binary(path) do
     case File.exists?(path) do
       true -> %Arc.File{path: path, file_name: Path.basename(path)}
       false -> {:error, :invalid_file_path}
     end
   end
 
-  def new(%{filename: filename, binary: binary}) do
+  def new(%{filename: filename, binary: binary}, _scope) do
     %Arc.File{binary: binary, file_name: Path.basename(filename)}
   end
 
   # Accepts a map conforming to %Plug.Upload{} syntax
-  def new(%{filename: filename, path: path}) do
+  def new(%{filename: filename, path: path}, _scope) do
     case File.exists?(path) do
       true -> %Arc.File{path: path, file_name: filename}
       false -> {:error, :invalid_file_path}
