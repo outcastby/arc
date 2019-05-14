@@ -15,7 +15,12 @@ defmodule Arc.File do
   # Given a remote file
   def new(remote_path = "http" <> _, scope) do
     uri = URI.parse(remote_path)
-    filename = (scope[:file_name] || Path.basename(uri.path)) |> String.downcase()
+
+    filename =
+      case scope do
+        %{__meta__: _} -> Path.basename(uri.path)
+        _ -> (scope[:file_name] || Path.basename(uri.path)) |> String.downcase()
+      end
 
     case save_file(uri, filename) do
       {:ok, local_path, headers} ->
