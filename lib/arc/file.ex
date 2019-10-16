@@ -24,7 +24,7 @@ defmodule Arc.File do
 
     case save_file(uri, filename) do
       {:ok, local_path, headers} ->
-        {_, mime_type} = Enum.find(headers, fn {a, b} -> a == "Content-Type" end)
+        {_, mime_type} = Enum.find(headers, fn {a, b} -> String.downcase(a) == "content-type" end)
         {file_name, ext} = get_file_name_and_ext(filename, mime_type)
 
         %Arc.File{
